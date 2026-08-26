@@ -17,7 +17,8 @@
     "mongoose": "^7.2.1",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
-    "twilio": "^5.10.2"
+    "twilio": "^5.10.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"

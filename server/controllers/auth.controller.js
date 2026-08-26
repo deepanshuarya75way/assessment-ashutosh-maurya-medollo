@@ -19,6 +19,24 @@ if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
   console.error("Twilio credentials not found. Please set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN environment variables.");
 }
 
+// Helper function to format phone number
+const formatPhoneNumber = (phone) => {
+  if (!phone) return { formattedPhone: '', phoneWithCountryCode: '' };
+  const cleanDigits = phone.replace(/\D/g, '');
+  let formattedPhone = cleanDigits;
+  let phoneWithCountryCode = `+91${cleanDigits}`;
+
+  if (cleanDigits.length === 12 && cleanDigits.startsWith('91')) {
+    formattedPhone = cleanDigits.slice(2);
+    phoneWithCountryCode = `+${cleanDigits}`;
+  } else if (cleanDigits.length > 10 && !cleanDigits.startsWith('91')) {
+    formattedPhone = cleanDigits;
+    phoneWithCountryCode = `+${cleanDigits}`;
+  }
+
+  return { formattedPhone, phoneWithCountryCode };
+};
+
 // Helper function to generate JWT token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -34,7 +52,7 @@ exports.register = async (req, res) => {
     const { name, email, password, phone } = req.body;
 
     // Check if user already exists by phone
-    const formattedPhone = phone.replace(/\D/g, '');
+    const { formattedPhone } = formatPhoneNumber(phone);
     const userExists = await User.findOne({ phone: formattedPhone });
     if (userExists && userExists.name !== 'Temporary User') {
       return res.status(400).json({
@@ -121,7 +139,7 @@ exports.login = async (req, res) => {
     let user;
     if (phone) {
       // Login with phone number
-      const formattedPhone = phone.replace(/\D/g, '');
+      const { formattedPhone } = formatPhoneNumber(phone);
       user = await User.findOne({ phone: formattedPhone }).select('+password');
     } else {
       // Login with email
@@ -223,9 +241,7 @@ exports.sendOTP = async (req, res) => {
       });
     }
 
-    // Format phone number (remove any non-digit characters and add country code if needed)
-    const formattedPhone = phone.replace(/\D/g, '');
-    const phoneWithCountryCode = formattedPhone.startsWith('+') ? formattedPhone : `+91${formattedPhone}`;
+    const { formattedPhone, phoneWithCountryCode } = formatPhoneNumber(phone);
 
     // Check if user exists with this phone number
     let user = await User.findOne({ phone: formattedPhone });
@@ -240,12 +256,13 @@ exports.sendOTP = async (req, res) => {
     }
 
     // Generate OTP
-    console.log("Generating OTP for user:", user.phone);
+    console.log("Generating OTP for user:", formattedPhone);
     const otp = user.generatePhoneVerificationOTP();
-    console.log("OTP",otp);
+    console.log("OTP", otp);
     console.log("OTP expires at:", new Date(user.phoneVerificationExpires));
     await user.save();
-    console.log("User saved with OTP",otp);
+    console.log("User saved with OTP", otp);
+
     // Send OTP via Twilio
     if (!client) {
       // Development mode: Log OTP to console
@@ -261,7 +278,7 @@ exports.sendOTP = async (req, res) => {
         message: 'OTP generated (Development mode - check server console)',
         phone: formattedPhone,
         developmentMode: true,
-        otp: otp // Only in development mode
+        otp: otp
       });
     }
 
@@ -272,27 +289,39 @@ exports.sendOTP = async (req, res) => {
         to: phoneWithCountryCode,
       });
 
-      res.status(200).json({
+      return res.status(200).json({
         success: true,
         message: 'OTP sent successfully',
         phone: formattedPhone,
       });
     } catch (twilioError) {
-          console.error("📩 Twilio Detailed Error:", {
-          message: twilioError.message,
-          code: twilioError.code,
-          moreInfo: twilioError.moreInfo,
-          status: twilioError.status,
-          stack: twilioError.stack,
-        });
+      console.error("📩 Twilio Detailed Error:", {
+        message: twilioError.message,
+        code: twilioError.code,
+        moreInfo: twilioError.moreInfo,
+        status: twilioError.status,
+        stack: twilioError.stack,
+      });
 
-      res.status(500).json({
-        success: false,
-        message: 'Failed to send OTP. Please check your phone number.',
+      console.log("=".repeat(50));
+      console.log(" ⚠️ TWILIO SMS DISPATCH FAILED (Fallback mode activated)");
+      console.log(" Reason:", twilioError.message);
+      console.log(" Phone Number:", phoneWithCountryCode);
+      console.log(" OTP Code:", otp);
+      console.log(" Expires at:", new Date(user.phoneVerificationExpires));
+      console.log("=".repeat(50));
+
+      return res.status(200).json({
+        success: true,
+        message: `OTP generated (Twilio SMS failed: ${twilioError.message}. Check console or fallback OTP)`,
+        phone: formattedPhone,
+        developmentMode: true,
+        otp: otp,
+        twilioError: twilioError.message
       });
     }
   } catch (error) {
-    console.log("error: ",error);
+    console.log("error: ", error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -315,7 +344,7 @@ exports.verifyOTP = async (req, res) => {
       });
     }
 
-    const formattedPhone = phone.replace(/\D/g, '');
+    const { formattedPhone } = formatPhoneNumber(phone);
     const user = await User.findOne({ phone: formattedPhone });
 
     if (!user) {
