@@ -6,6 +6,8 @@ import {
   BuildingLibraryIcon,
   ShieldCheckIcon,
   CheckCircleIcon,
+  ExclamationTriangleIcon,
+  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import PageTransition from "../components/ui/PageTransition";
 import { useCart } from "../context/CartContext";
@@ -38,7 +40,8 @@ const CheckoutPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errors, setErrors] = useState({});
   const [shippingMethod, setShippingMethod] = useState("standard");
-  
+  const [staleCartError, setStaleCartError] = useState(null);
+
   // Shipping Cost Calculation
   const shippingCost =
     shippingMethod === "standard" ? (cartTotal >= 999 ? 0 : 99) : 199;
@@ -199,6 +202,12 @@ const CheckoutPage = () => {
               orderId: data.order.orderId
             }
           });
+        } else if(data.errorCode === 'STALE_CART'){
+          setStaleCartError({
+            message: data.message,
+            details: data.details || [],
+          });
+          window.scrollTo({top: 0, behavior: 'smooth'});
         } else {
           setErrors({ general: data.message || 'Failed to place order' });
         }
@@ -977,6 +986,48 @@ const CheckoutPage = () => {
       <div className="min-h-screen bg-gray-50 py-12">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto">
+          {staleCartError && (
+            <motion.div
+              id="stale-cart-banner"
+              initial = {{opacity: 0, y : -16}}
+              animate={{ opacity: 1, y:0}}
+              exit={{opacity: 0, y : -16}}
+              transition={{ duration: 0.3}}
+              className="mb rounded-xl border border-amber-300 bg-amber-50 p-5 shadow-md"
+              role="alert"
+            >
+              <div className="flex items-start gap-3">
+                <ExclamationTriangleIcon className = "mt-0.5 h-6 w-6 flex-shrink-0 text-amber-500"/>
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-amber-800">
+                    Your cart needs a review
+                  </h3>
+                  <p className="mt-1 text-sm text-amber-700">{staleCartError.message}</p>
+                  {staleCartError.details.length > 0 && (
+                    <ul className="mt-3 space-y-1 text-sm text-amber-700 list-disc list-inside">
+                      {staleCartError.details.map((d, i)=>(
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <button 
+                  id="go-to-cart-btn"
+                  onClick={()=>navigate('/cart')}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-amber-600 transition-colors"
+                  >
+                    Go to Cart &amp; Fix Items
+
+                  </button>
+                </div>
+                <button
+                id="dismiss-stale-cart-btn"
+                onClick={()=>setStaleCartError(null)}
+                className="ml-2 rounded p-1 text-amber-100 hover:bg-a,ber-100 transition-colors"
+                aria-label="Dismiss"
+                ><XMarkIcon className="h-5 w-5"/></button>
+              </div>
+            </motion.div>
+          )}
             {/* Checkout Steps */}
             <div className="mb-8">
               <div className="flex justify-between items-center">

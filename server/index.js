@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 5002;
 // Middlewares
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin: process.env.FRONTEND_URL || "https://offline-pole-cannon-journals.trycloudflare.com",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })

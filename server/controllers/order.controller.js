@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const User = require('../models/user.model');
+const Medicine = require("../models/Medicine");
 
 // Create a new order
 const createOrder = async (req, res) => {
@@ -31,17 +32,80 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Missing required order information' });
     }
 
+    // Before proceed to order fetch all the medicines from current db
+    const medicineIds = items.map(i => i.medicine);
+    console.log("1", medicineIds);
+    const catalogMed = await Medicine.find({_id: {$in: medicineIds}}).lean();
+    console.log("cate", catalogMed);
+    const catalogMap  = {};
+    for(const med of catalogMed){
+      catalogMap[String(med._id)] = med;
+    }
+
+    const staleSummary = [];
+    console.log("items"+items);
+    for(const item of items){
+      const medId = String(item.medicine);
+      const catalog = catalogMap[medId];
+
+      if(!catalog){
+        staleSummary.push(`A requested medicine (id: ${medId}) is no longer available.`);
+        continue;
+      }
+      console.log("Cata", catalog);
+      if(catalog.isSellable !== 'Y'){
+        staleSummary.push(`"${catalog.productName}" is not available for purchase`);
+        continue;
+      }
+
+      if(typeof catalog.stock === 'number' && catalog.stock < item.quantity){
+        staleSummary.push(`"${catalog.productName}" has not sufficient stock (requested : ${item.quantity}, available: ${catalog.stock}).`);
+        continue;
+      }
+
+      const catalogPrice = catalog.displayPrice;
+      const clientPrice = Number(item.price);
+      if(Math.abs(clientPrice - catalogPrice) > 0.5){
+        staleSummary.push(
+          `The price of "${catalog.productName}" has changed ` + 
+          `(your cart: Rs.${clientPrice.toFixed(2)}, current: Rs.${catalogPrice.toFixed(2)}).` + 
+          `Please review your cart.`
+        );
+      }
+    }
+
+    if(staleSummary.length > 0){
+      return res.status(422).json({
+        message: ' Some items in your cart are not valid.',
+        errorCode: 'STALE_CART',
+        details: staleSummary,
+      });
+    }
+
+    const validatedItems = items.map(item => ({
+      medicine: item.medicine,
+      quantity: items.quantity,
+      price: catalogMap[String(item.medicine)],
+      displayPrice,
+    }));
+
+    const verifiedSubtotal = validatedItems.reduce(
+      (sum, item) => sum + item.price * item.quantity, 0
+    );
+
+    const verifiedTotal = verifiedSubtotal + Number(shippingCost) + Number(taxAmount);
+
     // Create the order
     const order = new Order({
       user: userId,
-      items,
+      items: validatedItems,
       shippingAddress,
       paymentMethod,
       shippingMethod: shippingMethod || 'standard',
-      subtotal,
-      shippingCost,
-      taxAmount,
-      totalAmount
+      subtotal: verifiedSubtotal,
+      shippingCost: Number(shippingCost),
+      taxAmount: Number(taxAmount),
+      totalAmount: verifiedTotal,
     });
 
     const savedOrder = await order.save();
